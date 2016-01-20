@@ -1,0 +1,130 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "ribham"
+date: "20 January 2015"
+output: html_document
+---
+
+##Project Objective
+
+The goal of this project is to quantify how well the participants of a study did a particular exercise. The data used is from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The classe variable in this dataset represents this information, there are 5 classes -> A, B, C, D and E. Class A corresponds to the specified (i.e. correct) execution of the exercise, while the other 4 classes correspond to common mistakes.
+More information is available from the website [here](http://groupware.les.inf.puc-rio.br/har). See the section on the Weight Lifting Exercise Dataset.
+
+####Data Availability
+
+The training data for this project is available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data for this project is available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+####Load R libraries required for model building and prediction
+
+```{r load libraries}
+library(caret)
+```
+
+####Load data
+Download data from above sources and save to local directory. Set the working directory to the folder where both the above files are placed. Load both the files as follows. 
+
+```{r load data, cache=TRUE}
+train <- read.csv('pml-training.csv', header = TRUE, na.strings=c("NA",""))
+test <- read.csv('pml-testing.csv', header = TRUE, na.strings=c("NA",""))
+```
+
+####Examine data
+
+```{r examine data, results="hide"}
+nrow(train)
+nrow(test)
+
+colnames(train)
+colnames(test)
+
+head(train, 2)
+head(test, 2)
+```
+
+There are 19622 rows in the training set and 20 rows in the test set. All columns are same in both except for the last one. On examining the first few rows of both data sets using "head", it is seen that the classe variable is the last column in training set and values are provided. For test set, it is required to predict this classe variable using the model we build. 
+
+####Split the training data
+
+We will further split the training set in a 60:40 ratio, and use 60% of it for training the model(s) we build and 40% to vqlidate those models. The actual test set with 20 rows is too short to validate the model, and will just be used for prediction using the final model. 
+
+```{r split training set}
+set.seed(3379)
+inTrain <- createDataPartition(y=train$classe, p=0.6, list=FALSE)
+train2 <- train[inTrain, ]
+test2 <- train[-inTrain, ]
+dim(train2)
+dim(test2)
+```
+
+####Clean up data
+
+As per the column name examination above, the first 7 columns look related to participant and timestamp identifiers, and should not be used as model features. So first step is to remove these columns
+
+```{r clean data 1}
+train2 <- train2[, -(1:7)]
+test2 <- test2[, -(1:7)]
+```
+
+We will also remove the columns where more than 70% rows have missing values as these columns will bias the model due to high number of unknowns. After this step, we have just 53 columns remaining in both data sets. 
+
+```{r clean data 2}
+NAs <- sapply(train2, function(t) mean(is.na(t))) > 0.7
+train2 <- train2[, NAs==FALSE]
+test2 <- test2[, NAs==FALSE]
+dim(train2)
+dim(test2)
+```
+
+Next we will examine if there are any variables with near zero variance.
+
+```{r clean data 3}
+nzv <- nearZeroVar(train2, saveMetrics=TRUE)
+nzv <- nearZeroVar(train2)
+nzv
+```
+
+Since there are no such variables, we need not remove any.
+
+####Modeling: KNN Model
+
+Trying to fit two KNN models using method as "repeatedcv" and "adaptive_cv"
+
+```{r knn model}
+knnc1 = trainControl(method = "repeatedcv", repeats=5)
+knnm1 = train(classe ~ ., train2, method = "knn", trControl = knnc1)
+knnm1$finalModel
+knnm1$results
+confusionMatrix(test2$classe, predict(knnm1, test2))
+
+knnc2 = trainControl(method = "adaptive_cv", repeats=5)
+knnm2 = train(classe ~ ., train2, method = "knn", trControl = knnc2)
+knnm2$finalModel
+knnm2$results
+confusionMatrix(test2$classe, predict(knnm2, test2))
+```
+
+Confusion matrix above shows the results of using the model on the 40% validation set. 
+Both methods give an accuracy of ~89.4%. This is ok but we can look at other models to see if the accuracy can be improved. 
+
+####Modeling: Random forest
+
+```{r random forest}
+rfc <- trainControl(method="oob")
+rfm  <- train(classe ~ ., train2, method = "rf", trControl = rfc)
+rfm$finalModel
+rfm$results
+confusionMatrix(test2$classe, predict(rfm, test2))
+```
+
+This model fits very well with an accuracy of 99.2%, and out of sample error rate of 0.8%
+Confusion matrix comparison between KNN models and random forest give a good sense of better prediction accuracy for random forest model. We can use this model to predict the 20 rows in the original test sample. 
+
+####Prediction on test sample
+
+```{r prediction}
+predict(rfm, test)
+```
+
+These are the values of classe variable for the 20 rows in test set using the random forest prediction model. Value of A denotes the rows where the exercise was done in the correct manner. 
